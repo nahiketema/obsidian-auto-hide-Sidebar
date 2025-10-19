@@ -6,6 +6,7 @@ interface AutoHideSettings {
 	lockSidebar: boolean;
 	leftPinActive: boolean;
 	rightPinActive: boolean;
+	expandSidebar_onHoverRightEdge: boolean; // NEW
 }
 
 const DEFAULT_SETTINGS: AutoHideSettings = {
@@ -13,7 +14,8 @@ const DEFAULT_SETTINGS: AutoHideSettings = {
 	expandSidebar_onClickNoteTitle: false,
 	lockSidebar: false,
 	leftPinActive: false,
-	rightPinActive: false
+	rightPinActive: false,
+	expandSidebar_onHoverRightEdge: false // NEW
 }
 
 export default class AutoHidePlugin extends Plugin {
@@ -41,6 +43,7 @@ export default class AutoHidePlugin extends Plugin {
 		this.app.workspace.on("layout-change", () => {
 			this.init();
 			this.togglePins();
+			// ensure pinned sidebars that should be open are open
 			if (this.settings.leftPinActive) {
 				this.leftSplit.expand();
 			}
@@ -100,21 +103,21 @@ export default class AutoHidePlugin extends Plugin {
 			}
 
 			// Click on the note title to expand the left sidebar (Optional).
+			// Keep original behaviour if user still wants to expand left by title:
 			if (evt.target.classList.contains("view-header-title") && this.settings.expandSidebar_onClickNoteTitle) {
 				if (this.leftSplit.collapsed == true) this.leftSplit.expand();
 				return;
 			}
 
-			// // Click on the rootSplit() to collapse both sidebars.
-			if (!this.settings.leftPinActive) {
-				this.leftSplit.collapse();
-			}
+			// Collapse only the right sidebar (user requested left to remain untouched).
 			if (!this.settings.rightPinActive) {
 				this.rightSplit.collapse();
 			}
+			// left side is untouched by click-to-collapse now
 		});
 
 		// Click on the blank area of leftRibbonEl to expand the left sidebar (Optional).
+		// (No change here — left ribbon behavior preserved if desired.)
 		this.registerDomEvent(this.leftRibbonEl, 'click', (evt: MouseEvent) => {
 			if (this.settings.expandSidebar_onClickRibbon) {
 				if (evt.target == this.leftRibbonEl) {
@@ -128,6 +131,21 @@ export default class AutoHidePlugin extends Plugin {
 			if (this.settings.expandSidebar_onClickRibbon) {
 				if (evt.target == this.rightRibbonEl) {
 					if (this.rightSplit.collapsed == true) this.rightSplit.expand();
+				}
+			}
+		});
+
+		// NEW: expand right sidebar when hovering the right edge (useful when ribbon is hidden)
+		this.registerDomEvent(this.app.workspace.containerEl, 'mousemove', (evt: any) => {
+			if (!this.settings.expandSidebar_onHoverRightEdge) return;
+			if (!this.rootSplitEl || !this.rootSplitEl.contains(evt.target)) return;
+
+			const rect = (this.rootSplitEl as HTMLElement).getBoundingClientRect();
+			const threshold = 8; // pixels from the right edge where hover will expand the right sidebar
+			// If the cursor is within threshold px of the right edge, expand the right sidebar
+			if (rect.right - evt.clientX <= threshold) {
+				if (this.rightSplit.collapsed === true) {
+					this.rightSplit.expand();
 				}
 			}
 		});
@@ -149,6 +167,7 @@ export default class AutoHidePlugin extends Plugin {
 		// tabHeaderContainers[0]=left, [2]=right. need more robust way to get these
 		const tabHeaderContainers = document.getElementsByClassName("workspace-tab-header-container");
 
+		// Left pin is left as-is (non-destructive), but the plugin will not auto-collapse left.
 		const lb = new ButtonComponent(tabHeaderContainers[0] as HTMLElement)
 			.setIcon(this.settings.leftPinActive ? "oah-filled-pin" : "oah-pin")
 			.setClass("auto-hide-button")
@@ -163,6 +182,7 @@ export default class AutoHidePlugin extends Plugin {
 				}
 			});
 
+		// Right pin controls whether right sidebar collapses on content click
 		const rb = new ButtonComponent(tabHeaderContainers[2] as HTMLElement)
 			.setIcon(this.settings.rightPinActive ? "oah-filled-pin" : "oah-pin")
 			.setClass("auto-hide-button")
@@ -221,6 +241,18 @@ class AutoHideSettingTab extends PluginSettingTab {
 					this.plugin.settings.expandSidebar_onClickNoteTitle = value;
 					await this.plugin.saveSettings();
 				}));
+
+		// NEW setting: expand right sidebar by hovering right edge
+		new Setting(containerEl)
+			.setName('Expand right sidebar by hovering right edge')
+			.setDesc('When enabled, moving the mouse to the right edge of the workspace will expand the right sidebar (useful when ribbons are hidden).')
+			.addToggle(toggle => toggle
+				.setValue(this.plugin.settings.expandSidebar_onHoverRightEdge)
+				.onChange(async (value) => {
+					this.plugin.settings.expandSidebar_onHoverRightEdge = value;
+					await this.plugin.saveSettings();
+				}));
+
 		containerEl.createEl('h4', { text: 'EXPERIMENTAL!' });
 		new Setting(containerEl)
 			.setName('Lock sidebar collapse')
